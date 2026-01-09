@@ -89,3 +89,34 @@ def compare_audio_fingerprints(fp1: bytes, fp2: bytes) -> float:
     logger.info(f"Best match: offset={best_offset} ({best_offset * SECONDS_PER_SAMPLE:.1f}s), similarity={best_similarity:.3f}")
 
     return best_similarity
+
+
+def merge_chromaprint_fingerprints(audio_chunks: list[dict]) -> tuple[bytes | None, float]:
+    if not audio_chunks:
+        return None, 0.0
+
+    sorted_chunks = sorted(audio_chunks, key=lambda x: x["start_time"])
+
+    merged_ints = []
+    total_duration = 0.0
+
+    for chunk in sorted_chunks:
+        fp_bytes = chunk["fingerprint"]
+        chunk_ints = [
+            int.from_bytes(fp_bytes[i:i+4], byteorder="little", signed=False)
+            for i in range(0, len(fp_bytes), 4)
+        ]
+        merged_ints.extend(chunk_ints)
+        total_duration += chunk.get("duration", 0) or 0
+
+    if not merged_ints:
+        return None, 0.0
+
+    merged_bytes = b"".join(
+        (i & 0xFFFFFFFF).to_bytes(4, byteorder="little", signed=False)
+        for i in merged_ints
+    )
+
+    logger.info(f"Merged {len(sorted_chunks)} audio chunks into {len(merged_ints)} samples ({total_duration:.1f}s)")
+
+    return merged_bytes, total_duration

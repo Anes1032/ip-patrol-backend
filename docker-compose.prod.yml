@@ -1,0 +1,79 @@
+# Production worker configuration for Celeron + RTX A4000 x2
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  # GPU0 Worker - concurrency=1 for 1:1 GPU mapping
+  reprint-video-worker-0:
+    build:
+      context: ./workers/reprint-video
+      dockerfile: Dockerfile
+      args:
+        COMPUTE_TARGET: gpu
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - WORKER_CONCURRENCY=1
+      - EXTRACT_FPS=${EXTRACT_FPS:-1}
+      - CHUNK_DURATION_SECONDS=${CHUNK_DURATION_SECONDS:-60}
+      - IMAGE_SIMILARITY_THRESHOLD=${IMAGE_SIMILARITY_THRESHOLD:-0.85}
+      - AUDIO_SIMILARITY_THRESHOLD=${AUDIO_SIMILARITY_THRESHOLD:-0.80}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-ip_patrol}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_BUCKET=${MINIO_BUCKET:-videos}
+    volumes:
+      - torch_cache_0:/root/.cache/torch
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # GPU1 Worker - concurrency=1 for 1:1 GPU mapping
+  reprint-video-worker-1:
+    build:
+      context: ./workers/reprint-video
+      dockerfile: Dockerfile
+      args:
+        COMPUTE_TARGET: gpu
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=1
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - WORKER_CONCURRENCY=1
+      - EXTRACT_FPS=${EXTRACT_FPS:-1}
+      - CHUNK_DURATION_SECONDS=${CHUNK_DURATION_SECONDS:-60}
+      - IMAGE_SIMILARITY_THRESHOLD=${IMAGE_SIMILARITY_THRESHOLD:-0.85}
+      - AUDIO_SIMILARITY_THRESHOLD=${AUDIO_SIMILARITY_THRESHOLD:-0.80}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-ip_patrol}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_BUCKET=${MINIO_BUCKET:-videos}
+    volumes:
+      - torch_cache_1:/root/.cache/torch
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  torch_cache_0:
+  torch_cache_1:

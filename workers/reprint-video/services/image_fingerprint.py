@@ -5,6 +5,9 @@ from torchvision.models._api import WeightsEnum
 from torch.hub import load_state_dict_from_url
 from PIL import Image
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _patched_load_state_dict(self, *args, **kwargs):
@@ -18,10 +21,29 @@ WeightsEnum.get_state_dict = _patched_load_state_dict
 class ResNet50Extractor:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.use_gpu = torch.cuda.is_available()
+
+        logger.info(f"Initializing ResNet50Extractor on device: {self.device}")
+
         self.model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
         self.model = nn.Sequential(*list(self.model.children())[:-1])
         self.model.eval()
         self.model.to(self.device)
+
+        if self.use_gpu:
+            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+            logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+
+            if torch.cuda.get_device_capability()[0] >= 7:
+                self.model = self.model.half()
+                self.use_fp16 = True
+                logger.info("Using FP16 (mixed precision) for faster inference")
+            else:
+                self.use_fp16 = False
+                logger.info("Using FP32 (GPU does not support efficient FP16)")
+        else:
+            self.use_fp16 = False
+            logger.info("Using CPU for inference")
 
         self.transform = transforms.Compose([
             transforms.Resize(256),
@@ -37,11 +59,24 @@ class ResNet50Extractor:
         batch = torch.stack([self.transform(img) for img in images])
         batch = batch.to(self.device)
 
+        if self.use_fp16:
+            batch = batch.half()
+
         with torch.no_grad():
-            features = self.model(batch)
+            if self.use_gpu:
+                with torch.cuda.amp.autocast(enabled=self.use_fp16):
+                    features = self.model(batch)
+            else:
+                features = self.model(batch)
+
             features = features.squeeze(-1).squeeze(-1)
 
-        return features.cpu().numpy()
+        result = features.float().cpu().numpy()
+
+        if self.use_gpu:
+            torch.cuda.empty_cache()
+
+        return result
 
 
 _extractor = None
@@ -54,11 +89,15 @@ def get_extractor() -> ResNet50Extractor:
     return _extractor
 
 
-def generate_image_fingerprints(frames: list[Image.Image], batch_size: int = 32) -> list[dict]:
+def generate_image_fingerprints(frames: list[Image.Image], batch_size: int = None) -> list[dict]:
     if not frames:
         return []
 
     extractor = get_extractor()
+
+    if batch_size is None:
+        batch_size = 64 if extractor.use_gpu else 32
+
     embeddings = []
 
     for i in range(0, len(frames), batch_size):

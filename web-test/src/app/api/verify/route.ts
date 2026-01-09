@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { uploadVideo } from "@/lib/minio";
 import { sendCeleryTask } from "@/lib/celery";
 import { splitVideoIntoChunks, cleanupChunks, ChunkInfo } from "@/lib/video";
+import { createVerifySession, createVerifyChunk } from "@/lib/database";
 import { v4 as uuidv4 } from "uuid";
 import * as fs from "fs";
 import * as path from "path";
@@ -32,9 +33,14 @@ export async function POST(request: NextRequest) {
     chunks = await splitVideoIntoChunks(tempVideoPath);
 
     const sessionId = uuidv4();
+
+    await createVerifySession(sessionId, baseVideoId, file.name, chunks.length);
+
     const taskIds: string[] = [];
 
     for (const chunk of chunks) {
+      await createVerifyChunk(sessionId, chunk.index, chunk.startTime);
+
       const chunkBuffer = fs.readFileSync(chunk.path);
       const objectKey = `verify/${sessionId}/chunk_${chunk.index}.mp4`;
 
@@ -42,7 +48,7 @@ export async function POST(request: NextRequest) {
 
       const taskId = await sendCeleryTask("tasks.verify.verify_video", [
         objectKey,
-        `${file.name}_chunk_${chunk.index}`,
+        sessionId,
         baseVideoId,
         chunk.index,
         chunk.startTime,

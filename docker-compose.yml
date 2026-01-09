@@ -73,7 +73,11 @@ services:
     build:
       context: ./workers/reprint-video
       dockerfile: Dockerfile
+      args:
+        COMPUTE_TARGET: ${COMPUTE_TARGET:-cpu}
     environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
       - EXTRACT_FPS=${EXTRACT_FPS:-1}
       - CHUNK_DURATION_SECONDS=${CHUNK_DURATION_SECONDS:-60}
       - IMAGE_SIMILARITY_THRESHOLD=${IMAGE_SIMILARITY_THRESHOLD:-0.85}
@@ -99,6 +103,13 @@ services:
     volumes:
       - ./workers/reprint-video:/app
       - torch_cache:/root/.cache/torch
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   web:
     build:

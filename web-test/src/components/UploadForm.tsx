@@ -89,8 +89,9 @@ export default function UploadForm({ type, baseVideoId, onTaskStarted, onResult,
 
       const data = await response.json();
 
-      if (type === "verify" && data.taskIds) {
-        const { sessionId, taskIds, totalChunks } = data;
+      if (data.taskIds && data.totalChunks) {
+        const sessionId = data.sessionId || data.videoId;
+        const { taskIds, totalChunks } = data;
         setStatus(`Processing ${totalChunks} chunks...`);
         setChunkProgress({ completed: 0, total: totalChunks });
 
@@ -104,8 +105,9 @@ export default function UploadForm({ type, baseVideoId, onTaskStarted, onResult,
 
         let completedCount = 0;
         const taskIdsParam = taskIds.join(",");
+        const waitForFinalize = type === "register" ? "&waitForFinalize=true" : "";
         const eventSource = new EventSource(
-          `/api/session/${sessionId}?taskIds=${taskIdsParam}&totalChunks=${totalChunks}`
+          `/api/session/${sessionId}?taskIds=${taskIdsParam}&totalChunks=${totalChunks}${waitForFinalize}`
         );
 
         eventSource.onmessage = (event) => {
@@ -114,7 +116,7 @@ export default function UploadForm({ type, baseVideoId, onTaskStarted, onResult,
 
             if (parsed.type === "session_complete") {
               eventSource.close();
-              setStatus("All chunks completed");
+              setStatus(type === "register" ? "Registration completed" : "All chunks completed");
               setUploading(false);
               setFileName("");
               setChunkProgress(null);
@@ -151,7 +153,7 @@ export default function UploadForm({ type, baseVideoId, onTaskStarted, onResult,
           setUploading(false);
           setChunkProgress(null);
         };
-      } else {
+      } else if (data.taskId) {
         const { taskId } = data;
         onTaskStarted(taskId);
         setStatus("Processing...");
@@ -273,7 +275,7 @@ export default function UploadForm({ type, baseVideoId, onTaskStarted, onResult,
 
       {status && !chunkProgress && (
         <p className={`text-sm text-center ${
-          status === "Completed" || status === "All chunks completed" ? "text-green-400" :
+          status === "Completed" || status === "All chunks completed" || status === "Registration completed" ? "text-green-400" :
           status === "Failed" || status.startsWith("Error") || status === "Completed with errors" ? "text-red-400" :
           "text-gray-400"
         }`}>

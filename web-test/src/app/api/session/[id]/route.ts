@@ -16,14 +16,18 @@ export async function GET(
 
   const taskIds = taskIdsParam.split(",");
   const redisUrl = process.env.REDIS_URL || "redis://redis:6379/0";
+  const waitForFinalize = searchParams.get("waitForFinalize") === "true";
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       const client = new Redis(redisUrl);
-      const channels = taskIds.map((id) => `task:status:${id}`);
+      const taskChannels = taskIds.map((id) => `task:status:${id}`);
+      const videoChannel = `video:status:${sessionId}`;
+      const channels = waitForFinalize ? [...taskChannels, videoChannel] : taskChannels;
       let isClosed = false;
       let completedCount = 0;
+      let finalizeCompleted = false;
 
       const cleanup = () => {
         if (isClosed) return;
@@ -58,14 +62,25 @@ export async function GET(
       }
 
       client.on("message", (channel, message) => {
-        const taskId = channel.replace("task:status:", "");
         try {
           const data = JSON.parse(message);
+
+          if (channel === videoChannel) {
+            sendEvent(JSON.stringify({ ...data, videoId: sessionId }));
+            if (data.type === "register_complete" || data.type === "register_error") {
+              finalizeCompleted = true;
+              sendEvent(JSON.stringify({ type: "session_complete", sessionId }));
+              safeClose();
+            }
+            return;
+          }
+
+          const taskId = channel.replace("task:status:", "");
           sendEvent(JSON.stringify({ ...data, taskId }));
 
           if (data.status === "completed" || data.status === "failed") {
             completedCount++;
-            if (completedCount >= totalChunks) {
+            if (!waitForFinalize && completedCount >= totalChunks) {
               sendEvent(JSON.stringify({ type: "session_complete", sessionId }));
               safeClose();
             }
